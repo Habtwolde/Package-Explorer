@@ -641,20 +641,50 @@ def unique_sorted(values: pd.Series) -> list[str]:
 def build_package_resolution(package_name: str, server_name: str, incoming_folder: str) -> PackageResolution:
     package_name = clean_package_name(package_name)
     server_folder = server_folder_name(server_name)
+
     expected_folder = f"{incoming_folder.rstrip('/')}/{server_folder}"
     expected_path = f"{expected_folder}/{package_name}" if package_name else expected_folder
 
     if not package_name:
-        return PackageResolution("", "no_package", "", expected_path, expected_folder, "", "This SQL Agent step does not reference a DTSX package.")
+        return PackageResolution(
+            "",
+            "no_package",
+            "",
+            expected_path,
+            expected_folder,
+            "",
+            "This SQL Agent step does not reference a DTSX package.",
+        )
 
     candidate_folders = []
+
+    # Your current layout:
+    # /incoming/<server_folder>/<package>.dtsx
     candidate_folders.append(expected_folder)
 
+    # Client layout:
+    # /incoming/<server_folder>/ETLPackages/<package>.dtsx
+    candidate_folders.append(f"{expected_folder}/ETLPackages")
+
+    # Alternate exact server folder fallback, in case the raw server name differs
+    # from the sanitized server folder name.
     exact_server_folder = clean_cell(server_name).replace("\\", "_").replace("/", "_").strip()
     if exact_server_folder and exact_server_folder != server_folder:
-        candidate_folders.append(f"{incoming_folder.rstrip('/')}/{exact_server_folder}")
+        exact_folder = f"{incoming_folder.rstrip('/')}/{exact_server_folder}"
 
+        # /incoming/<exact_server_folder>/<package>.dtsx
+        candidate_folders.append(exact_folder)
+
+        # /incoming/<exact_server_folder>/ETLPackages/<package>.dtsx
+        candidate_folders.append(f"{exact_folder}/ETLPackages")
+
+    # Existing root fallback:
+    # /incoming/<package>.dtsx
     candidate_folders.append(incoming_folder.rstrip("/"))
+
+    # Root ETLPackages fallback:
+    # /incoming/ETLPackages/<package>.dtsx
+    candidate_folders.append(f"{incoming_folder.rstrip('/')}/ETLPackages")
 
     seen = set()
     deduped_folders = []
@@ -675,23 +705,50 @@ def build_package_resolution(package_name: str, server_name: str, incoming_folde
 
         for file_info in files:
             if package_lookup_key(file_info["name"]) == package_key:
-                status = "available" if folder == expected_folder else "available_root_fallback"
+                if folder == expected_folder:
+                    status = "available"
+                    message = "Package found in the server folder."
+                elif folder == f"{expected_folder}/ETLPackages":
+                    status = "available_nested_folder"
+                    message = "Package found in the server ETLPackages folder."
+                elif folder == incoming_folder.rstrip("/"):
+                    status = "available_root_fallback"
+                    message = "Package found in the root incoming folder fallback."
+                elif folder == f"{incoming_folder.rstrip('/')}/ETLPackages":
+                    status = "available_root_nested_fallback"
+                    message = "Package found in the root incoming ETLPackages fallback."
+                else:
+                    status = "available_alternate_server_folder"
+                    message = "Package found in an alternate server folder layout."
+
                 return PackageResolution(
                     package_name,
                     status,
                     file_info["path"],
-                    expected_path,
+                    f"{folder.rstrip('/')}/{package_name}",
                     folder,
                     file_info.get("access_mode", ""),
-                    "Package found in the server folder." if status == "available" else "Package found in the root incoming folder fallback.",
+                    message,
                 )
 
-    message = "Package was not found in the server folder or root incoming fallback."
+    searched = " | ".join(deduped_folders)
+    message = (
+        "Package was not found. Searched server folder, server ETLPackages folder, "
+        f"and fallback folders. Searched: {searched}"
+    )
+
     if errors:
-        message = f"{message} Listing errors: {' | '.join(errors[:3])}"
+        message = f"{message}. Listing errors: {' | '.join(errors[:3])}"
 
-    return PackageResolution(package_name, "missing", "", expected_path, expected_folder, "", message)
-
+    return PackageResolution(
+        package_name,
+        "missing",
+        "",
+        expected_path,
+        expected_folder,
+        "",
+        message,
+    )
 
 def package_resolution_frame(packages: list[str], server_name: str, incoming_folder: str) -> pd.DataFrame:
     resolutions = [build_package_resolution(package, server_name, incoming_folder) for package in packages]
