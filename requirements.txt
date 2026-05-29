@@ -1,0 +1,6 @@
+streamlit>=1.37
+pandas>=2.0
+plotly>=5.22
+databricks-sdk>=0.72.0
+databricks-openai
+streamlit-agraph==0.0.45

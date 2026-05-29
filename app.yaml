@@ -1,0 +1,20 @@
+command: ["streamlit", "run", "app.py"]
+
+env:
+  - name: STREAMLIT_GATHER_USAGE_STATS
+    value: "false"
+
+  - name: DTSX_VOLUME_PATH
+    valueFrom: volume
+
+  - name: DTSX_INCOMING_SUBDIR
+    value: incoming
+
+  - name: JOB_PACKAGE_CSV_SUBPATH
+    value: metadata/listofpackages.csv
+
+  - name: JOB_HISTORY_CSV_SUBPATH
+    value: metadata/sqljobshistory_normalized.csv
+
+  - name: LLM_ENDPOINT_NAME
+    valueFrom: serving-endpoint
